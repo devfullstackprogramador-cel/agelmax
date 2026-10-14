@@ -1,0 +1,79 @@
+import { useEffect, useMemo, useState } from 'react';
+import { ShoppingBag, Search, Plus, Minus, X, ChevronRight, Clock3, MapPin, CheckCircle2, Coffee, Croissant, CakeSlice, Sandwich, PackageCheck, ArrowLeft } from 'lucide-react';
+
+type Category = { id: string; name: string; slug: string; sortOrder: number };
+type Product = { id: string; categoryId: string; name: string; description?: string | null; imageUrl?: string | null; priceCents: number; featured: boolean };
+type Menu = { tenant: { id: string; name: string; slug: string; phone?: string | null }; categories: Category[]; products: Product[] };
+type CartItem = { product: Product; quantity: number };
+const API = import.meta.env.VITE_API_URL || 'http://localhost:3333';
+const SLUG = import.meta.env.VITE_TENANT_SLUG || 'padaria-demo';
+const money = (cents: number) => (cents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const icons = [Croissant, Sandwich, CakeSlice, Coffee];
+const fallbackProducts = [
+  { id:'demo1', categoryId:'paes', name:'Pão francês (un.)', description:'Crocante por fora, macio por dentro.', priceCents:80, featured:true },
+  { id:'demo2', categoryId:'paes', name:'Pão de queijo', description:'Assado na hora, com queijo.', priceCents:450, featured:true },
+  { id:'demo3', categoryId:'salgados', name:'Coxinha de frango', description:'Recheio cremoso e massa dourada.', priceCents:750, featured:true },
+  { id:'demo4', categoryId:'salgados', name:'Esfiha de carne', description:'Temperada e assada diariamente.', priceCents:650, featured:false },
+  { id:'demo5', categoryId:'doces', name:'Sonho de creme', description:'Massa leve com creme de confeiteiro.', priceCents:700, featured:true },
+  { id:'demo6', categoryId:'doces', name:'Brigadeiro', description:'Clássico, feito com chocolate.', priceCents:350, featured:false },
+  { id:'demo7', categoryId:'bebidas', name:'Café coado', description:'Café quentinho, 200 ml.', priceCents:400, featured:false },
+  { id:'demo8', categoryId:'bebidas', name:'Suco de laranja', description:'Suco natural, 300 ml.', priceCents:850, featured:false }
+] as Product[];
+const fallbackCategories = [{id:'paes',name:'Pães',slug:'paes',sortOrder:1},{id:'salgados',name:'Salgados',slug:'salgados',sortOrder:2},{id:'doces',name:'Doces',slug:'doces',sortOrder:3},{id:'bebidas',name:'Bebidas',slug:'bebidas',sortOrder:4}];
+
+export default function App() {
+  const [menu, setMenu] = useState<Menu | null>(null);
+  const [offline, setOffline] = useState(false);
+  const [category, setCategory] = useState('todos');
+  const [search, setSearch] = useState('');
+  const [cart, setCart] = useState<CartItem[]>([]);
+  const [cartOpen, setCartOpen] = useState(false);
+  const [checkout, setCheckout] = useState(false);
+  const [done, setDone] = useState<{number:number;total:number}|null>(null);
+  const [sending, setSending] = useState(false);
+  const [form, setForm] = useState({ customerName:'', customerPhone:'', customerEmail:'', fulfillment:'PICKUP', deliveryAddress:'', neighborhood:'', notes:'', paymentMethod:'PIX_LINK' });
+  const categories = menu?.categories ?? fallbackCategories;
+  const products = menu?.products ?? fallbackProducts;
+  useEffect(() => { fetch(`${API}/api/public/${SLUG}/menu`).then(r => { if(!r.ok) throw new Error(); return r.json(); }).then((d:Menu) => {setMenu(d);setOffline(false)}).catch(() => setOffline(true)); }, []);
+  const filtered = useMemo(() => products.filter(p => (category === 'todos' || p.categoryId === categories.find(c=>c.slug===category)?.id || p.categoryId===category) && `${p.name} ${p.description||''}`.toLowerCase().includes(search.toLowerCase())), [products, category, search, categories]);
+  const totalQty = cart.reduce((s,i)=>s+i.quantity,0);
+  const subtotal = cart.reduce((s,i)=>s+i.product.priceCents*i.quantity,0);
+  const add = (product:Product) => setCart(old => {const found=old.find(i=>i.product.id===product.id); return found?old.map(i=>i.product.id===product.id?{...i,quantity:i.quantity+1}:i):[...old,{product,quantity:1}]});
+  const changeQty = (id:string, delta:number) => setCart(old=>old.map(i=>i.product.id===id?{...i,quantity:i.quantity+delta}:i).filter(i=>i.quantity>0));
+  const setField = (key:string,value:string) => setForm(old=>({...old,[key]:value}));
+  async function placeOrder(e:React.FormEvent) {
+    e.preventDefault(); if (!cart.length) return;
+    setSending(true);
+    const payload = {...form, items:cart.map(i=>({productId:i.product.id,quantity:i.quantity}))};
+    try {
+      const response = await fetch(`${API}/api/public/${SLUG}/orders`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Não foi possível registrar o pedido.');
+      setDone({number:result.order.orderNumber,total:result.order.totalCents}); setCart([]); setCheckout(false); setCartOpen(false);
+    } catch (err) {
+      alert(offline ? 'A API não está conectada. Inicie o banco e a API seguindo o README para registrar pedidos reais.' : (err instanceof Error ? err.message : 'Erro ao enviar pedido.'));
+    } finally { setSending(false); }
+  }
+  if (done) return <main className="success-page"><div className="success-card"><div className="success-icon"><CheckCircle2 size={42}/></div><p className="eyebrow">AGELMAX PADARIA</p><h1>Pedido recebido!</h1><p>Obrigado pela preferência. Seu pedido foi registrado nesta demonstração.</p><div className="order-summary"><span>Pedido</span><strong>#{done.number}</strong><span>Total</span><strong>{money(done.total)}</strong></div><p className="small-note">Na versão conectada, você receberá a confirmação da padaria pelo WhatsApp.</p><button className="primary-btn" onClick={()=>setDone(null)}>Voltar ao cardápio</button></div></main>;
+  return <div className="app-shell">
+    <div className="announcement"><span>Feito com carinho, fresquinho todos os dias</span><span className="announcement-right"><Clock3 size={14}/> Seg–Sáb · 6h às 20h</span></div>
+    <header className="topbar"><a className="brand" href="#top" onClick={()=>{setCheckout(false);setCartOpen(false)}}><span className="brand-mark"><Croissant size={25}/></span><span><b>agelmax</b><small>PADARIA ARTESANAL</small></span></a><nav><a href="#cardapio">Cardápio</a><a href="#sobre">Nossa padaria</a></nav><button className="cart-button" onClick={()=>{setCartOpen(true);setCheckout(false)}}><ShoppingBag size={18}/><span>Minha sacola</span><b>{totalQty}</b></button></header>
+    {offline && <div className="offline-banner">Modo demonstração: API/banco ainda não conectados. O cardápio de exemplo está sendo exibido.</div>}
+    <main id="top">
+      <section className="hero"><div className="hero-copy"><p className="eyebrow"><span></span> BOM DIA, TEM COISA BOA NO FORNO</p><h1>O sabor de casa,<br/><em>feito todo dia.</em></h1><p className="hero-text">Pães quentinhos, café passado na hora e aquele carinho que transforma o simples em especial.</p><div className="hero-actions"><a className="primary-btn" href="#cardapio">Ver nosso cardápio <ChevronRight size={17}/></a><span className="fresh-note"><span className="fresh-dot"/> Assando agora</span></div><div className="hero-stats"><div><strong>100%</strong><span>feito com carinho</span></div><div><strong>Todo dia</strong><span>fresquinho pra você</span></div><div><strong>Seu jeito</strong><span>retire ou receba</span></div></div></div><div className="hero-art"><div className="sun-disc"></div><div className="hero-photo"><img src="https://images.unsplash.com/photo-1509440159596-0249088772ff?auto=format&fit=crop&w=1000&q=85" alt="Pães artesanais recém-assados"/><div className="photo-label"><span>✳</span><div><b>Direto do forno</b><small>Todo dia, com afeto</small></div></div></div><div className="floating-seal">FRESCO<br/><b>♡</b><br/>DE VERDADE</div><span className="art-sparkle sparkle-one">✳</span><span className="art-sparkle sparkle-two">✦</span></div></section>
+      <section className="benefits"><div><span className="benefit-icon"><Croissant size={21}/></span><span><b>Produção diária</b><small>Fresquinho de verdade</small></span></div><div><span className="benefit-icon"><PackageCheck size={21}/></span><span><b>Pedido fácil</b><small>Em poucos cliques</small></span></div><div><span className="benefit-icon"><MapPin size={21}/></span><span><b>Retire ou receba</b><small>Você escolhe</small></span></div><div><span className="benefit-icon"><Coffee size={21}/></span><span><b>Feito com afeto</b><small>Do nosso forno pra você</small></span></div></section>
+      <section id="cardapio" className="menu-section"><div className="section-heading"><div><p className="eyebrow">ESCOLHAS QUE AQUECEM O CORAÇÃO</p><h2>Nosso <em>cardápio</em></h2><p>Encontre seu favorito e peça sem complicação.</p></div><label className="search-box"><Search size={18}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="O que você está procurando?"/></label></div>
+        <div className="category-tabs"><button className={category==='todos'?'active':''} onClick={()=>setCategory('todos')}>Tudo <span>{products.length}</span></button>{categories.map((c,i)=>{const Icon=icons[i%icons.length];return <button key={c.id} className={category===c.slug||category===c.id?'active':''} onClick={()=>setCategory(c.slug)}><Icon size={17}/>{c.name}</button>})}</div>
+        <div className="product-grid">{filtered.map((p,i)=><article className="product-card" key={p.id}><div className={`product-image product-tone-${i%4}`}>{p.imageUrl?<img src={p.imageUrl} alt={p.name}/>:<img src={productImage(p.name)} alt={p.name}/ >}{p.featured&&<span className="product-tag">Queridinho</span>}<button className="add-float" aria-label={`Adicionar ${p.name}`} onClick={()=>add(p)}><Plus size={19}/></button></div><div className="product-info"><div className="product-title-row"><h3>{p.name}</h3><strong>{money(p.priceCents)}</strong></div><p>{p.description || 'Uma delícia feita diariamente para você.'}</p><button className="add-text" onClick={()=>add(p)}>Adicionar à sacola <Plus size={14}/></button></div></article>)}</div>
+        {filtered.length===0&&<div className="empty-state">Não encontramos esse produto. Tente outro nome ou categoria.</div>}
+      </section>
+      <section id="sobre" className="closing-banner"><div className="closing-icon"><Croissant size={28}/></div><div><p className="eyebrow">UM PEDACINHO DE FELICIDADE</p><h2>Seu dia merece esse <em>carinho.</em></h2><p>Escolha seus favoritos e deixe o cheirinho de padaria chegar até você.</p></div><a className="light-btn" href="#cardapio">Escolher delícias <ChevronRight size={17}/></a></section>
+    </main>
+    <footer><a className="brand footer-brand" href="#top"><span className="brand-mark"><Croissant size={22}/></span><span><b>agelmax</b><small>PADARIA ARTESANAL</small></span></a><p>Feito com carinho, todos os dias. © {new Date().getFullYear()} AgelMax.</p><span>Cardápio digital</span></footer>
+    {cartOpen&&<div className="overlay" onMouseDown={e=>{if(e.target===e.currentTarget){setCartOpen(false);setCheckout(false)}}}><aside className="drawer"><div className="drawer-head"><div><p className="eyebrow">SUA SELEÇÃO</p><h2>{checkout?'Finalizar pedido':'Minha sacola'}</h2></div><button className="icon-btn" onClick={()=>{setCartOpen(false);setCheckout(false)}}><X/></button></div>
+      {!checkout?<>{cart.length===0?<div className="cart-empty"><ShoppingBag size={35}/><h3>Sua sacola está vazia</h3><p>Tem tanta coisa gostosa esperando por você.</p><button className="primary-btn" onClick={()=>setCartOpen(false)}>Explorar cardápio</button></div>:<><div className="cart-items">{cart.map(i=><div className="cart-item" key={i.product.id}><div className="cart-thumb"><img src={productImage(i.product.name)} alt=""/></div><div className="cart-item-main"><b>{i.product.name}</b><strong>{money(i.product.priceCents*i.quantity)}</strong><div className="quantity-control"><button onClick={()=>changeQty(i.product.id,-1)}><Minus size={13}/></button><span>{i.quantity}</span><button onClick={()=>changeQty(i.product.id,1)}><Plus size={13}/></button></div></div></div>)}</div><div className="drawer-bottom"><div className="subtotal-line"><span>Subtotal</span><strong>{money(subtotal)}</strong></div><p className="small-note">Entrega, quando disponível, será adicionada no checkout.</p><button className="primary-btn full-btn" onClick={()=>setCheckout(true)}>Continuar para checkout <ChevronRight size={17}/></button></div></>}</>:<form className="checkout-form" onSubmit={placeOrder}><button type="button" className="back-link" onClick={()=>setCheckout(false)}><ArrowLeft size={15}/> Voltar à sacola</button><label>Seu nome<input required minLength={2} value={form.customerName} onChange={e=>setField('customerName',e.target.value)} placeholder="Nome completo"/></label><label>WhatsApp / telefone<input required minLength={8} value={form.customerPhone} onChange={e=>setField('customerPhone',e.target.value)} placeholder="(00) 00000-0000"/></label><label>E-mail (opcional)<input type="email" value={form.customerEmail} onChange={e=>setField('customerEmail',e.target.value)} placeholder="voce@email.com"/></label><div className="form-label">Como quer receber?</div><div className="choice-row"><button type="button" className={form.fulfillment==='PICKUP'?'choice active':''} onClick={()=>setField('fulfillment','PICKUP')}>Retirar na padaria</button><button type="button" className={form.fulfillment==='DELIVERY'?'choice active':''} onClick={()=>setField('fulfillment','DELIVERY')}>Receber em casa</button></div>{form.fulfillment==='DELIVERY'&&<><label>Endereço completo<input required value={form.deliveryAddress} onChange={e=>setField('deliveryAddress',e.target.value)} placeholder="Rua, número e complemento"/></label><label>Bairro<input required value={form.neighborhood} onChange={e=>setField('neighborhood',e.target.value)} placeholder="Seu bairro"/></label><p className="fee-hint">Taxa demonstrativa de entrega: R$ 5,00. A regra real por bairro será cadastrada na próxima etapa.</p></>}<label>Forma de pagamento<select value={form.paymentMethod} onChange={e=>setField('paymentMethod',e.target.value)}><option value="PIX_LINK">Pix / link de pagamento</option><option value="CASH">Dinheiro na retirada/entrega</option><option value="CARD_AT_STORE">Cartão presencial</option></select></label><label>Observações (opcional)<textarea rows={2} value={form.notes} onChange={e=>setField('notes',e.target.value)} placeholder="Alguma preferência para seu pedido?"/></label><div className="checkout-total"><span>Total estimado</span><strong>{money(subtotal+(form.fulfillment==='DELIVERY'?500:0))}</strong></div><p className="small-note">O pagamento online ainda não está integrado. Esta etapa registra o pedido para desenvolvimento.</p><button className="primary-btn full-btn" disabled={sending}>{sending?'Enviando pedido…':'Confirmar pedido'} <ChevronRight size={17}/></button></form>}
+    </aside></div>}
+    {totalQty>0&&!cartOpen&&<button className="mobile-cart" onClick={()=>setCartOpen(true)}><ShoppingBag size={18}/> Ver sacola ({totalQty}) <strong>{money(subtotal)}</strong></button>}
+  </div>;
+}
+function productImage(name:string){const n=name.toLowerCase();if(n.includes('coxinha')||n.includes('esfiha'))return 'https://images.unsplash.com/photo-1601050690597-df0568f70950?auto=format&fit=crop&w=700&q=80';if(n.includes('sonho')||n.includes('brigadeiro'))return 'https://images.unsplash.com/photo-1578985545062-69928b1d9587?auto=format&fit=crop&w=700&q=80';if(n.includes('café')||n.includes('suco'))return 'https://images.unsplash.com/photo-1509042239860-f550ce710b93?auto=format&fit=crop&w=700&q=80';if(n.includes('queijo'))return 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?auto=format&fit=crop&w=700&q=80';return 'https://images.unsplash.com/photo-1509440159596-0249088772ff?auto=format&fit=crop&w=700&q=80';}

@@ -1,0 +1,121 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum OrderStatus {
+  NEW
+  CONFIRMED
+  PREPARING
+  READY
+  OUT_FOR_DELIVERY
+  COMPLETED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  PIX_LINK
+  CASH
+  CARD_AT_STORE
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  AWAITING_PAYMENT_AT_STORE
+  FAILED
+  REFUNDED
+}
+
+enum FulfillmentType {
+  DELIVERY
+  PICKUP
+}
+
+model Tenant {
+  id          String     @id @default(cuid())
+  name        String
+  slug        String     @unique
+  phone       String?
+  active      Boolean    @default(true)
+  categories  Category[]
+  products    Product[]
+  orders      Order[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+model Category {
+  id        String    @id @default(cuid())
+  tenantId  String
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name      String
+  slug      String
+  sortOrder Int       @default(0)
+  active    Boolean   @default(true)
+  products  Product[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  @@unique([tenantId, slug])
+  @@index([tenantId, active])
+}
+
+model Product {
+  id          String    @id @default(cuid())
+  tenantId    String
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  categoryId  String
+  category    Category  @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  name        String
+  description String?
+  imageUrl    String?
+  priceCents  Int
+  active      Boolean   @default(true)
+  featured    Boolean   @default(false)
+  stock       Int?
+  orderItems  OrderItem[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  @@index([tenantId, categoryId, active])
+}
+
+model Order {
+  id               String          @id @default(cuid())
+  tenantId         String
+  tenant           Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  orderNumber      Int
+  customerName     String
+  customerPhone    String
+  customerEmail    String?
+  fulfillment      FulfillmentType
+  deliveryAddress  String?
+  neighborhood     String?
+  notes            String?
+  paymentMethod    PaymentMethod
+  paymentStatus    PaymentStatus   @default(PENDING)
+  status           OrderStatus     @default(NEW)
+  subtotalCents    Int
+  deliveryFeeCents Int             @default(0)
+  totalCents       Int
+  items            OrderItem[]
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  @@unique([tenantId, orderNumber])
+  @@index([tenantId, createdAt])
+}
+
+model OrderItem {
+  id             String  @id @default(cuid())
+  orderId        String
+  order          Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId      String
+  product        Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+  productName    String
+  unitPriceCents Int
+  quantity       Int
+  lineTotalCents Int
+}
